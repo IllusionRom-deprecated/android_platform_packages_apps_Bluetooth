@@ -497,7 +497,7 @@ public class AdapterService extends Service {
     /**
      * The Binder implementation must be declared to be a static class, with
      * the AdapterService instance passed in the constructor. Furthermore,
-     * when the AdapterService shuts down, the reference to the AdapterService 
+     * when the AdapterService shuts down, the reference to the AdapterService
      * must be explicitly removed.
      *
      * Otherwise, a memory leak can occur from repeated starting/stopping the
@@ -1584,35 +1584,4 @@ public class AdapterService extends Service {
             }
         }
     }
-
-    @SuppressWarnings("rawtypes")
-    private synchronized void checkHidState() {
-        final Class hh[] = { HidService.class };
-        final Class hd[] = { HidDevService.class };
-
-        boolean isHidDev = SystemProperties.getBoolean("persist.service.bdroid.hid.dev", false);
-        Log.d(TAG, "checkHidState: isHidDev = " + isHidDev);
-
-        if (isHidDev) {
-            mDisabledProfiles.add(HidService.class.getName());
-            mDisabledProfiles.remove(HidDevService.class.getName());
-        } else {
-            mDisabledProfiles.remove(HidService.class.getName());
-            mDisabledProfiles.add(HidDevService.class.getName());
-        }
-
-        if (mAdapterStateMachine.isTurningOn() || mAdapterStateMachine.isTurningOff()) {
-            Log.e(TAG, "checkHidState: returning");
-            return;
-        }
-
-        if (isHidDev) {
-            setProfileServiceState(hh, BluetoothAdapter.STATE_OFF);
-            setProfileServiceState(hd, BluetoothAdapter.STATE_ON);
-        } else {
-            setProfileServiceState(hd, BluetoothAdapter.STATE_OFF);
-            setProfileServiceState(hh, BluetoothAdapter.STATE_ON);
-        }
-    }
-
 }

@@ -20,6 +20,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 import android.app.PendingIntent;
+import android.bluetooth.BluetoothA2dp;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -123,10 +124,7 @@ final class Avrcp {
     private static final int MESSAGE_FAST_FORWARD = 10;
     private static final int MESSAGE_REWIND = 11;
     private static final int MESSAGE_CHANGE_PLAY_POS = 12;
-    private int mAddressedPlayerChangedNT;
-    private int mAvailablePlayersChangedNT;
-    private int mAddressedPlayerId;
-
+    private static final int MESSAGE_SET_A2DP_AUDIO_STATE = 13;
     private static final int MSG_UPDATE_STATE = 100;
     private static final int MSG_SET_METADATA = 101;
     private static final int MSG_SET_TRANSPORT_CONTROLS = 102;
@@ -753,14 +751,21 @@ final class Avrcp {
                     sendMessageDelayed(posMsg, SKIP_PERIOD);
                 }
                 break;
-            case MSG_UPDATE_RCC_CHANGE:
-                Log.v(TAG, "MSG_UPDATE_RCC_CHANGE");
-                String callingPackageName = (String)msg.obj;
-                int isFocussed = msg.arg1;
-                int isAvailable = msg.arg2;
-                processRCCStateChange(callingPackageName, isFocussed, isAvailable);
+
+            case MESSAGE_SET_A2DP_AUDIO_STATE:
+                if (DEBUG) Log.v(TAG, "MESSAGE_SET_A2DP_AUDIO_STATE:" + msg.arg1);
+                updateA2dpAudioState(msg.arg1);
                 break;
             }
+        }
+    }
+
+    private void updateA2dpAudioState(int state) {
+        boolean isPlaying = (state == BluetoothA2dp.STATE_PLAYING);
+        if (isPlaying != isPlayingState(mCurrentPlayState)) {
+            updatePlayPauseState(isPlaying ? RemoteControlClient.PLAYSTATE_PLAYING :
+                                 RemoteControlClient.PLAYSTATE_PAUSED,
+                                 RemoteControlClient.PLAYBACK_POSITION_INVALID);
         }
     }
 
@@ -1339,6 +1344,20 @@ final class Avrcp {
         return playStatus;
     }
 
+    private boolean isPlayingState(int playState) {
+        boolean isPlaying = false;
+        switch (playState) {
+            case RemoteControlClient.PLAYSTATE_PLAYING:
+            case RemoteControlClient.PLAYSTATE_BUFFERING:
+                isPlaying = true;
+                break;
+            default:
+                isPlaying = false;
+                break;
+        }
+        return isPlaying;
+    }
+
     /**
      * This is called from AudioService. It will return whether this device supports abs volume.
      * NOT USED AT THE MOMENT.
@@ -1392,139 +1411,12 @@ final class Avrcp {
         return (int) Math.ceil((double) volume*AVRCP_MAX_VOL/mAudioStreamMax);
     }
 
-
-private void updateLocalPlayerSettings( byte[] data) {
-        for (int i = 0; i < data.length; i += 2) {
-            switch (data[i]) {
-                case ATTRIBUTE_EQUALIZER:
-                    settingValues.eq_value = data[i+1];
-                break;
-                case ATTRIBUTE_REPEATMODE:
-                    settingValues.repeat_value = data[i+1];
-                break;
-                case ATTRIBUTE_SHUFFLEMODE:
-                    settingValues.shuffle_value = data[i+1];
-                break;
-                case ATTRIBUTE_SCANMODE:
-                    settingValues.scan_value = data[i+1];
-                break;
-            }
-        }
-    }
-
-    //PDU ID 0x11
-    private void onListPlayerAttributeRequest() {
-        if (DEBUG) Log.v(TAG, "onListPlayerAttributeRequest");
-        Intent intent = new Intent(PLAYERSETTINGS_REQUEST);
-        intent.putExtra(COMMAND, CMDGET);
-        intent.putExtra(EXTRA_GET_COMMAND, GET_ATTRIBUTE_IDS);
-        mContext.sendBroadcast(intent, BLUETOOTH_PERM);
-
-        Message msg = mHandler.obtainMessage(MESSAGE_PLAYERSETTINGS_TIMEOUT ,GET_ATTRIBUTE_IDS );
-        mPendingCmds.add(new Integer(msg.arg1));
-        mHandler.sendMessageDelayed(msg, 130);
-    }
-
-    //PDU ID 0x12
-    private void onListPlayerAttributeValues (byte attr ) {
-        if (DEBUG) Log.v(TAG, "onListPlayerAttributeValues");
-        Intent intent = new Intent(PLAYERSETTINGS_REQUEST);
-        intent.putExtra(COMMAND, CMDGET);
-        intent.putExtra(EXTRA_GET_COMMAND, GET_VALUE_IDS);
-        intent.putExtra(EXTRA_ATTRIBUTE_ID, attr);
-        mContext.sendBroadcast(intent, BLUETOOTH_PERM);
-        mPlayerSettings.attr = attr;
-        Message msg = mHandler.obtainMessage();
-        msg.what = MESSAGE_PLAYERSETTINGS_TIMEOUT;
-        msg.arg1 = GET_VALUE_IDS;
-        mPendingCmds.add(new Integer(msg.arg1));
-        mHandler.sendMessageDelayed(msg, 130);
-    }
-
-
-    //PDU ID 0x13
-    private void onGetPlayerAttributeValues (byte attr ,int[] arr )
-    {
-        if (DEBUG) Log.v(TAG, "onGetPlayerAttributeValues" + attr );
-        int i ;
-        byte[] barray = new byte[attr];
-        for(i =0 ; i<attr ; ++i)
-            barray[i] = (byte)arr[i];
-        mPlayerSettings.attrIds = new byte [attr];
-        for ( i = 0; i < attr; i++)
-            mPlayerSettings.attrIds[i] = barray[i];
-        Intent intent = new Intent(PLAYERSETTINGS_REQUEST);
-        intent.putExtra(COMMAND, CMDGET);
-        intent.putExtra(EXTRA_GET_COMMAND, GET_ATTRIBUTE_VALUES);
-        intent.putExtra(EXTRA_ATTIBUTE_ID_ARRAY, barray);
-        mContext.sendBroadcast(intent, BLUETOOTH_PERM);
-        Message msg = mHandler.obtainMessage();
-        msg.what = MESSAGE_PLAYERSETTINGS_TIMEOUT;
-        msg.arg1 = GET_ATTRIBUTE_VALUES;
-        mPendingCmds.add(new Integer(msg.arg1));
-        mHandler.sendMessageDelayed(msg, 130);
-    }
-
-    //PDU 0x14
-    private void setPlayerAppSetting( byte num , byte [] attr_id , byte [] attr_val )
-    {
-        if (DEBUG) Log.v(TAG, "setPlayerAppSetting" + num );
-        byte[] array = new byte[num*2];
-        for ( int i = 0; i < num; i++)
-        {
-            array[i] = attr_id[i] ;
-            array[i+1] = attr_val[i];
-        }
-        Intent intent = new Intent(PLAYERSETTINGS_REQUEST);
-        intent.putExtra(COMMAND, CMDSET);
-        intent.putExtra(EXTRA_ATTRIB_VALUE_PAIRS, array);
-        mContext.sendBroadcast(intent, BLUETOOTH_PERM);
-        Message msg = mHandler.obtainMessage();
-        msg.what = MESSAGE_PLAYERSETTINGS_TIMEOUT;
-        msg.arg1 = SET_ATTRIBUTE_VALUES;
-        mPendingCmds.add(new Integer(msg.arg1));
-        mHandler.sendMessageDelayed(msg, 130);
-    }
-
-    //PDU 0x15
-    private void getplayerattribute_text(byte attr , byte [] attrIds)
-    {
-        if(DEBUG) Log.d(TAG, "getplayerattribute_text" + attr +"attrIDsNum" + attrIds.length);
-        Intent intent = new Intent(PLAYERSETTINGS_REQUEST);
-        Message msg = mHandler.obtainMessage();
-        intent.putExtra(COMMAND, CMDGET);
-        intent.putExtra(EXTRA_GET_COMMAND, GET_ATTRIBUTE_TEXT);
-        intent.putExtra(EXTRA_ATTIBUTE_ID_ARRAY, attrIds);
-        mPlayerSettings.attrIds = new byte [attr];
-        for (int i = 0; i < attr; i++)
-            mPlayerSettings.attrIds[i] = attrIds[i];
-        mContext.sendBroadcast(intent, BLUETOOTH_PERM);
-        msg.what = MESSAGE_PLAYERSETTINGS_TIMEOUT;
-        msg.arg1 = GET_ATTRIBUTE_TEXT;
-        mPendingCmds.add(new Integer(msg.arg1));
-        mHandler.sendMessageDelayed(msg, 130);
-   }
-
-    //PDU 0x15
-    private void getplayervalue_text(byte attr_id , byte num_value , byte [] value)
-    {
-        if(DEBUG) Log.d(TAG, "getplayervalue_text id" + attr_id +"num_value" + num_value
-                                                           +"value.lenght" + value.length);
-        Intent intent = new Intent(PLAYERSETTINGS_REQUEST);
-        Message msg = mHandler.obtainMessage();
-        intent.putExtra(COMMAND, CMDGET);
-        intent.putExtra(EXTRA_GET_COMMAND, GET_VALUE_TEXT);
-        intent.putExtra(EXTRA_ATTRIBUTE_ID, attr_id);
-        intent.putExtra(EXTRA_VALUE_ID_ARRAY, value);
-        mPlayerSettings.attrIds = new byte [num_value];
-
-        for (int i = 0; i < num_value; i++)
-            mPlayerSettings.attrIds[i] = value[i];
-        mContext.sendBroadcast(intent, BLUETOOTH_PERM);
-        msg.what = MESSAGE_PLAYERSETTINGS_TIMEOUT;
-        msg.arg1 = GET_VALUE_TEXT;
-        mPendingCmds.add(new Integer(msg.arg1));
-        mHandler.sendMessageDelayed(msg, 130);
+    /**
+     * This is called from A2dpStateMachine to set A2dp audio state.
+     */
+    public void setA2dpAudioState(int state) {
+        Message msg = mHandler.obtainMessage(MESSAGE_SET_A2DP_AUDIO_STATE, state, 0);
+        mHandler.sendMessage(msg);
     }
 
     // Do not modify without updating the HAL bt_rc.h files.

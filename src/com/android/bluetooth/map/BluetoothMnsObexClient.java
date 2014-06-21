@@ -60,6 +60,7 @@ public class BluetoothMnsObexClient {
     private ClientSession mClientSession;
     private boolean mConnected = false;
     BluetoothDevice mRemoteDevice;
+    private Handler mCallback = null;
     private BluetoothMapContentObserver mObserver;
     private boolean mObserverRegistered = false;
     private PowerManager.WakeLock mWakeLock = null;
@@ -72,7 +73,8 @@ public class BluetoothMnsObexClient {
             ParcelUuid.fromString("00001133-0000-1000-8000-00805F9B34FB");
 
 
-    public BluetoothMnsObexClient(Context context, BluetoothDevice remoteDevice) {
+    public BluetoothMnsObexClient(Context context, BluetoothDevice remoteDevice,
+                                  Handler callback) {
         if (remoteDevice == null) {
             throw new NullPointerException("Obex transport is null");
         }
@@ -82,6 +84,7 @@ public class BluetoothMnsObexClient {
         mHandler = new MnsObexClientHandler(looper);
         mContext = context;
         mRemoteDevice = remoteDevice;
+        mCallback = callback;
         mObserver = new BluetoothMapContentObserver(mContext);
         mObserver.init();
     }
@@ -282,6 +285,8 @@ public class BluetoothMnsObexClient {
             return responseCode;
         }
 
+        notifyUpdateWakeLock();
+
         request = new HeaderSet();
         BluetoothMapAppParams appParams = new BluetoothMapAppParams();
         appParams.setMasInstanceId(masInstanceId);
@@ -384,30 +389,9 @@ public class BluetoothMnsObexClient {
         Log.e(TAG, "Error when sending event: " + exception);
     }
 
-    private void acquireMnsLock() {
-        if (V) Log.v(TAG, "About to acquire Mns:mWakeLock");
-        if (mWakeLock == null) {
-            PowerManager pm = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
-            mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MnsPartialWakeLock");
-            mWakeLock.setReferenceCounted(false);
-            mWakeLock.acquire();
-            if (V) Log.v(TAG, "Mns:mWakeLock acquired");
-        }
-        else {
-            Log.e(TAG, "Mns:mWakeLock already acquired");
-        }
-    }
-
-    private void releaseMnsLock() {
-        if (V) Log.v(TAG, "About to release Mns:mWakeLock");
-        if (mWakeLock != null) {
-            if (mWakeLock.isHeld()) {
-                mWakeLock.release();
-                if (V) Log.v(TAG, "Mns:mWakeLock released");
-            } else {
-                if (V) Log.v(TAG, "Mns:mWakeLock already released");
-            }
-            mWakeLock = null;
-        }
+    private void notifyUpdateWakeLock() {
+        Message msg = Message.obtain(mCallback);
+        msg.what = BluetoothMapService.MSG_ACQUIRE_WAKE_LOCK;
+        msg.sendToTarget();
     }
 }
